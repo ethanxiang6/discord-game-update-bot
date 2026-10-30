@@ -1,0 +1,95 @@
+name: 24/7 Discord Game Update Bot (Cloud Runner)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'data/**'
+  schedule:
+    # Watchdog schedule: ensures the bot restarts automatically if ever stopped
+    - cron: '*/30 * * * *'
+
+# Ensure only 1 active bot instance runs in the cloud at a time
+concurrency:
+  group: discord-game-update-bot-24-7
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install --omit=dev
+
+      - name: Configure Git for SQLite State Persistence
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Discord Bot in Cloud (with Periodic SQLite Sync)
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          UPDATE_CHECK_INTERVAL_MINUTES: '10'
+          CLOUD_MAX_RUNTIME_MINUTES: '320'
+        run: |
+          # Background loop to save data/bot.sqlite to the repo every 10 minutes
+          (
+            while true; do
+              sleep 600
+              if [ -f data/bot.sqlite ]; then
+                git add data/bot.sqlite
+                if ! git diff --cached --quiet; then
+                  git commit -m "chore(db): sync tracked games & seen updates [skip ci]" || true
+                  git pull --rebase -X theirs origin main || true
+                  git push origin main || true
+                fi
+              fi
+            done
+          ) &
+          SYNC_PID=$!
+
+          # Run the Discord Bot
+          node src/index.js || true
+
+          kill $SYNC_PID 2>/dev/null || true
+
+      - name: Save Final SQLite Database State
+        if: always()
+        run: |
+          if [ -f data/bot.sqlite ]; then
+            git add data/bot.sqlite
+            if ! git diff --cached --quiet; then
+              git commit -m "chore(db): save final SQLite state after cycle [skip ci]" || true
+              git pull --rebase -X theirs origin main || true
+              git push origin main || true
+            fi
+          fi
+
+      - name: Chain Next 24/7 Cloud Run Immediately
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run bot-24-7.yml --ref main || true
