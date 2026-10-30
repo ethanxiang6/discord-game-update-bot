@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0deploy-to-cloud.ps1"
+node src/deploy-cloud.js
+pause
