@@ -1,0 +1,1465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiet Jungle — Classroom Noise Monitor</title>
+  <style>
+    :root {
+      --bg-dark: #091d15;
+      --panel-bg: rgba(12, 34, 24, 0.85);
+      --panel-border: rgba(82, 183, 136, 0.35);
+      --text-main: #ecfdf5;
+      --text-muted: #a7f3d0;
+      --common-color: #4ade80;
+      --uncommon-color: #38bdf8;
+      --legendary-color: #fbbf24;
+      --spooked-color: #fb923c;
+      --danger-color: #f87171;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Top Control Bar */
+    header {
+      z-index: 30;
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 10px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      background: linear-gradient(90deg, #6ee7b7, #fbbf24);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .status-badge {
+      font-size: 0.78rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      background: rgba(74, 222, 128, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.4);
+      transition: all 0.25s ease;
+    }
+
+    .status-badge.spooked {
+      background: rgba(251, 146, 60, 0.25);
+      color: #fb923c;
+      border-color: #fb923c;
+      animation: pulse-badge 0.8s infinite alternate;
+    }
+
+    .status-badge.fleeing {
+      background: rgba(248, 113, 113, 0.3);
+      color: #f87171;
+      border-color: #f87171;
+      animation: pulse-badge 0.4s infinite alternate;
+    }
+
+    @keyframes pulse-badge {
+      from { transform: scale(1); }
+      to { transform: scale(1.06); }
+    }
+
+    /* Meter & Controls */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+
+    .meter-container {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 220px;
+    }
+
+    .meter-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .meter-bar-bg {
+      position: relative;
+      height: 14px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .meter-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #4ade80 0%, #fbbf24 65%, #ef4444 100%);
+      border-radius: 999px;
+      transition: width 0.06s linear;
+    }
+
+    .threshold-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #ffffff;
+      box-shadow: 0 0 6px #000;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .setting-group {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .setting-group label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-weight: 600;
+    }
+
+    .setting-group span.val {
+      color: #fff;
+      font-weight: 700;
+    }
+
+    input[type="range"] {
+      accent-color: #34d399;
+      cursor: pointer;
+      width: 115px;
+      height: 6px;
+    }
+
+    .btn-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s;
+      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.35);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.5);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button.secondary {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: none;
+    }
+
+    button.secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    button.active-mic {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
+    }
+
+    /* Main Jungle Scene */
+    .scene-wrapper {
+      position: relative;
+      flex: 1;
+      width: 100%;
+      overflow: hidden;
+      background: linear-gradient(180deg, #0b2920 0%, #134632 45%, #19573b 70%, #103824 100%);
+    }
+
+    .jungle-svg-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Sunbeams & Fireflies */
+    .sunbeams {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          115deg,
+          rgba(253, 224, 71, 0.05) 0px,
+          rgba(253, 224, 71, 0.05) 80px,
+          transparent 80px,
+          transparent 240px
+        );
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* HUD Overlays inside Scene */
+    .hud-overlay {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: none;
+      z-index: 20;
+      gap: 12px;
+    }
+
+    .hud-card {
+      pointer-events: auto;
+      background: var(--panel-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--panel-border);
+      border-radius: 12px;
+      padding: 10px 14px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .hud-stats {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    /* Danger / Calm Progress Bars */
+    .timers-panel {
+      min-width: 240px;
+    }
+
+    .timer-row {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .timer-row-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
+
+    .progress-track {
+      height: 8px;
+      background: rgba(0, 0, 0, 0.45);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .progress-bar-loud {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #fb923c, #ef4444);
+      transition: width 0.08s linear;
+    }
+
+    .progress-bar-calm {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #38bdf8, #4ade80);
+      transition: width 0.08s linear;
+    }
+
+    /* Animal Stage */
+    #animal-stage {
+      position: absolute;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .animal-entity {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: auto;
+      cursor: pointer;
+      transition: left 2.4s ease-in-out, top 2.4s ease-in-out;
+      will-change: left, top, transform;
+    }
+
+    .animal-entity.spawning {
+      animation: pop-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+
+    @keyframes pop-in {
+      0% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.2);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+    }
+
+    /* Exclamation Mark (!) above spooked animals */
+    .spook-indicator {
+      font-size: 2rem;
+      font-weight: 900;
+      color: var(--spooked-color);
+      text-shadow: 0 0 10px rgba(251, 146, 60, 0.9), 0 2px 4px #000;
+      line-height: 1;
+      margin-bottom: 2px;
+      opacity: 0;
+      transform: scale(0.4) translateY(8px);
+      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none;
+    }
+
+    .animal-entity.spooked .spook-indicator {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+      animation: exclamation-bounce 0.45s infinite alternate ease-in-out;
+    }
+
+    @keyframes exclamation-bounce {
+      from { transform: translateY(0) scale(1); }
+      to { transform: translateY(-7px) scale(1.18); }
+    }
+
+    .animal-sprite-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, rgba(0,0,0,0) 70%);
+      transition: transform 0.25s ease;
+    }
+
+    .animal-sprite {
+      font-size: 3.1rem;
+      filter: drop-shadow(0 6px 8px rgba(0, 0, 0, 0.55));
+      animation: idle-bob 2.6s infinite ease-in-out;
+      display: inline-block;
+    }
+
+    .animal-entity.facing-left .animal-sprite {
+      transform: scaleX(-1);
+    }
+
+    @keyframes idle-bob {
+      0%, 100% { translate: 0 0; }
+      50% { translate: 0 -5px; }
+    }
+
+    /* Spooked shake effect */
+    .animal-entity.spooked .animal-sprite {
+      animation: spooked-shake 0.25s infinite;
+      filter: drop-shadow(0 0 12px rgba(251, 146, 60, 0.85)) drop-shadow(0 5px 8px rgba(0,0,0,0.6));
+    }
+
+    @keyframes spooked-shake {
+      0% { translate: -2px 0; }
+      25% { translate: 2px -2px; }
+      50% { translate: -2px 1px; }
+      75% { translate: 2px 1px; }
+      100% { translate: -2px 0; }
+    }
+
+    /* Legendary aura */
+    .animal-entity.tier-legendary .animal-sprite-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px dashed rgba(251, 191, 36, 0.75);
+      animation: spin-aura 8s linear infinite;
+      box-shadow: 0 0 18px rgba(251, 191, 36, 0.5);
+    }
+
+    .animal-entity.tier-uncommon .animal-sprite-wrap::before {
+      content: '';
+      position: absolute;
+      inset: 0px;
+      border-radius: 50%;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+    }
+
+    @keyframes spin-aura {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .animal-tag {
+      margin-top: -2px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 800;
+      background: rgba(9, 29, 21, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .tier-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .tier-common .tier-dot { background: var(--common-color); }
+    .tier-uncommon .tier-dot { background: var(--uncommon-color); }
+    .tier-legendary .tier-dot { background: var(--legendary-color); box-shadow: 0 0 6px var(--legendary-color); }
+
+    .tier-legendary .animal-tag {
+      border-color: var(--legendary-color);
+      color: #fef3c7;
+    }
+
+    .tier-uncommon .animal-tag {
+      border-color: rgba(56, 189, 248, 0.5);
+      color: #e0f2fe;
+    }
+
+    /* Running away animation */
+    .animal-entity.fleeing {
+      transition: left 1.1s cubic-bezier(0.55, 0.055, 0.675, 0.19),
+                  top 1.1s ease-in,
+                  opacity 1.1s ease-in,
+                  transform 1.1s ease-in !important;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* Event Toast Feed */
+    #toast-container {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      z-index: 25;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 360px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: rgba(9, 29, 21, 0.9);
+      backdrop-filter: blur(8px);
+      border-left: 4px solid #4ade80;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      animation: slide-in-toast 0.25s ease-out;
+    }
+
+    .toast.warn { border-left-color: var(--spooked-color); }
+    .toast.danger { border-left-color: var(--danger-color); }
+    .toast.legendary { border-left-color: var(--legendary-color); background: rgba(45, 32, 8, 0.92); }
+
+    @keyframes slide-in-toast {
+      from { transform: translateX(-20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Bestiary / Tier Guide Drawer */
+    .guide-toggle-btn {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      z-index: 25;
+    }
+
+    .bestiary-modal {
+      position: absolute;
+      bottom: 64px;
+      right: 16px;
+      width: 420px;
+      max-width: calc(100vw - 32px);
+      max-height: 75vh;
+      overflow-y: auto;
+      background: rgba(9, 29, 21, 0.95);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      padding: 16px;
+      z-index: 30;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bestiary-modal.open {
+      display: flex;
+    }
+
+    .bestiary-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 8px;
+    }
+
+    .tier-section h4 {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .tier-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
+      gap: 6px;
+    }
+
+    .animal-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.76rem;
+      font-weight: 600;
+    }
+
+    .animal-card .emoji {
+      font-size: 1.25rem;
+    }
+
+    .animal-card .count-pill {
+      margin-left: auto;
+      background: rgba(255, 255, 255, 0.14);
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 0.68rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Controls Header -->
+  <header>
+    <div class="brand">
+      <span style="font-size: 1.6rem;">🌴</span>
+      <div>
+        <h1>Quiet Jungle</h1>
+        <div style="font-size: 0.72rem; color: var(--text-muted);">Classroom Noise &amp; Wildlife Sanctuary</div>
+      </div>
+      <span id="status-badge" class="status-badge">Peaceful</span>
+    </div>
+
+    <div class="controls-row">
+      <!-- Live Microphone Level Meter -->
+      <div class="meter-container">
+        <div class="meter-labels">
+          <span>Mic Level: <strong id="db-readout">0%</strong></span>
+          <span>Limit: <strong id="threshold-readout">45%</strong></span>
+        </div>
+        <div class="meter-bar-bg">
+          <div id="meter-fill" class="meter-fill"></div>
+          <div id="threshold-marker" class="threshold-marker" style="left: 45%;"></div>
+        </div>
+      </div>
+
+      <!-- Adjustable Noise Threshold -->
+      <div class="setting-group">
+        <label for="threshold-slider">
+          <span>Max Noise Level</span>
+          <span class="val" id="threshold-val">45%</span>
+        </label>
+        <input type="range" id="threshold-slider" min="5" max="95" value="45" />
+      </div>
+
+      <!-- Adjustable Loud Duration Before Action -->
+      <div class="setting-group">
+        <label for="duration-slider">
+          <span>Loud Time Limit</span>
+          <span class="val" id="duration-val">3.0s</span>
+        </label>
+        <input type="range" id="duration-slider" min="1" max="10" step="0.5" value="3" />
+      </div>
+
+      <!-- Adjustable Calm Down Recovery Time -->
+      <div class="setting-group">
+        <label for="calm-slider">
+          <span>Calm Down Time</span>
+          <span class="val" id="calm-val">5.0s</span>
+        </label>
+        <input type="range" id="calm-slider" min="2" max="15" step="0.5" value="5" />
+      </div>
+
+      <div class="btn-row">
+        <button id="mic-btn" type="button">🎙️ Start Microphone</button>
+        <button id="test-noise-btn" type="button" class="secondary" title="Hold down to simulate loud noise">📢 Hold to Test Noise</button>
+        <button id="spawn-now-btn" type="button" class="secondary" title="Spawn an animal immediately">+1 Animal</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Jungle Scene -->
+  <div class="scene-wrapper">
+    <div class="sunbeams"></div>
+
+    <!-- Layered Vector Jungle Illustration -->
+    <svg class="jungle-svg-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#071f18"/>
+          <stop offset="55%" stop-color="#113c2b"/>
+          <stop offset="100%" stop-color="#1b4d34"/>
+        </linearGradient>
+        <linearGradient id="waterGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.35"/>
+          <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#0284c7" stop-opacity="0.35"/>
+        </linearGradient>
+        <linearGradient id="groundGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#154c30"/>
+          <stop offset="45%" stop-color="#0f3b24"/>
+          <stop offset="100%" stop-color="#072214"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Background Canopy Mist -->
+      <rect width="1600" height="900" fill="url(#skyGrad)"/>
+
+      <!-- Distant Hills & Trees -->
+      <path d="M0,450 Q250,340 550,430 T1150,400 T1600,440 L1600,900 L0,900 Z" fill="#0d3122" opacity="0.8"/>
+      <path d="M0,510 Q400,420 800,490 T1600,470 L1600,900 L0,900 Z" fill="#123f2b"/>
+
+      <!-- Background Tree Trunks -->
+      <g fill="#0a2619" opacity="0.75">
+        <rect x="140" y="60" width="45" height="520" rx="10"/>
+        <rect x="420" y="80" width="38" height="480" rx="10"/>
+        <rect x="780" y="50" width="55" height="500" rx="12"/>
+        <rect x="1180" y="70" width="42" height="510" rx="10"/>
+        <rect x="1430" y="60" width="50" height="520" rx="12"/>
+      </g>
+
+      <!-- Main Jungle Floor -->
+      <path d="M0,540 Q360,500 800,535 T1600,520 L1600,900 L0,900 Z" fill="url(#groundGrad)"/>
+
+      <!-- Jungle Pond / Stream -->
+      <ellipse cx="820" cy="740" rx="340" ry="75" fill="url(#waterGrad)"/>
+      <ellipse cx="800" cy="735" rx="290" ry="52" fill="#38bdf8" opacity="0.2"/>
+
+      <!-- Stepping Stones & Rocks -->
+      <ellipse cx="480" cy="720" rx="45" ry="22" fill="#334155"/>
+      <ellipse cx="1140" cy="755" rx="55" ry="25" fill="#334155"/>
+      <ellipse cx="520" cy="745" rx="28" ry="14" fill="#475569"/>
+
+      <!-- Hanging Vines -->
+      <g stroke="#15803d" stroke-width="5" fill="none" opacity="0.75">
+        <path d="M100,0 Q130,140 90,260"/>
+        <path d="M260,0 Q220,180 270,320"/>
+        <path d="M620,0 Q660,130 610,230"/>
+        <path d="M980,0 Q940,170 990,290"/>
+        <path d="M1320,0 Q1360,150 1310,270"/>
+      </g>
+
+      <!-- Top Canopy Leaves -->
+      <g fill="#0f5132">
+        <circle cx="80" cy="40" r="110"/>
+        <circle cx="240" cy="20" r="95"/>
+        <circle cx="460" cy="30" r="115"/>
+        <circle cx="720" cy="15" r="105"/>
+        <circle cx="980" cy="25" r="120"/>
+        <circle cx="1240" cy="20" r="105"/>
+        <circle cx="1490" cy="35" r="125"/>
+      </g>
+
+      <!-- Foreground Bushes -->
+      <g fill="#064e3b">
+        <ellipse cx="90" cy="880" rx="180" ry="90"/>
+        <ellipse cx="1510" cy="880" rx="190" ry="95"/>
+        <ellipse cx="340" cy="895" rx="130" ry="60"/>
+        <ellipse cx="1270" cy="895" rx="140" ry="65"/>
+      </g>
+    </svg>
+
+    <!-- Top Scene HUD Overlay -->
+    <div class="hud-overlay">
+      <div class="hud-card">
+        <div class="hud-stats">
+          <div class="stat-item">
+            <span class="stat-label">Total Animals</span>
+            <span class="stat-value" id="total-animals-count">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Spooked (!)</span>
+            <span class="stat-value" id="spooked-animals-count" style="color: var(--spooked-color);">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Next Spawn In</span>
+            <span class="stat-value" id="spawn-countdown" style="color: #6ee7b7;">1:00</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Legendaries</span>
+            <span class="stat-value" id="legendary-count" style="color: var(--legendary-color);">0 / 3</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Noise & Spook Timers Card -->
+      <div class="hud-card timers-panel">
+        <div class="timer-row">
+          <div class="timer-row-header">
+            <span id="loud-timer-label" style="color: #fca5a5;">Loudness Timer (Spook)</span>
+            <span id="loud-timer-text">0.0s / 3.0s</span>
+          </div>
+          <div class="progress-track">
+            <div id="loud-progress-bar" class="progress-bar-loud"></div>
+          </div>
+        </div>
+
+        <div class="timer-row" id="calm-timer-row" style="opacity: 0.45;">
+          <div class="timer-row-header">
+            <span style="color: #7dd3fc;">Calm Recovery Timer</span>
+            <span id="calm-timer-text">0.0s / 5.0s</span>
+          </div>
+          <div class="progress-track">
+            <div id="calm-progress-bar" class="progress-bar-calm"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dynamic Animal Stage -->
+    <div id="animal-stage"></div>
+
+    <!-- Live Event Toast Feed -->
+    <div id="toast-container"></div>
+
+    <!-- Bestiary / Tier Guide Button & Modal -->
+    <div class="guide-toggle-btn">
+      <button id="toggle-guide-btn" type="button" class="secondary">📖 Animal Tiers (15 Species)</button>
+    </div>
+
+    <div id="bestiary-modal" class="bestiary-modal">
+      <div class="bestiary-header">
+        <strong>Jungle Sanctuary Species (15 Total)</strong>
+        <button id="close-guide-btn" type="button" class="secondary" style="padding: 4px 8px;">✕</button>
+      </div>
+
+      <div class="tier-section">
+        <h4 style="color: var(--common-color);">
+          <span>Common Tier (7 Species)</span>
+          <span>60% Spawn Rate • Repeats Allowed</span>
+        </h4>
+        <div id="grid-common" class="tier-grid"></div>
+      </div>
+
+      <div class="tier-section">
+        <h4 style="color: var(--uncommon-color);">
+          <span>Uncommon Tier (5 Species)</span>
+          <span>30% Spawn Rate • Repeats Allowed</span>
+        </h4>
+        <div id="grid-uncommon" class="tier-grid"></div>
+      </div>
+
+      <div class="tier-section">
+        <h4 style="color: var(--legendary-color);">
+          <span>Legendary Tier (3 Species)</span>
+          <span>10% Spawn Rate • Unique (No Repeats)</span>
+        </h4>
+        <div id="grid-legendary" class="tier-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**************************************************************
+     * 1. ANIMAL CATALOG (15 Species: 7 Common, 5 Uncommon, 3 Legendary)
+     **************************************************************/
+    const ANIMAL_CATALOG = {
+      common: [
+        { id: 'monkey',     name: 'Capuchin Monkey', emoji: '🐒', tier: 'common', habitat: 'ground' },
+        { id: 'frog',       name: 'Tree Frog',       emoji: '🐸', tier: 'common', habitat: 'pond'   },
+        { id: 'parrot',     name: 'Scarlet Macaw',   emoji: '🦜', tier: 'common', habitat: 'canopy' },
+        { id: 'sloth',      name: 'Three-Toed Sloth',emoji: '🦥', tier: 'common', habitat: 'canopy' },
+        { id: 'snake',      name: 'Emerald Boa',     emoji: '🐍', tier: 'common', habitat: 'ground' },
+        { id: 'butterfly',  name: 'Blue Morpho',     emoji: '🦋', tier: 'common', habitat: 'canopy' },
+        { id: 'lizard',     name: 'Green Iguana',    emoji: '🦎', tier: 'common', habitat: 'ground' }
+      ],
+      uncommon: [
+        { id: 'tiger',      name: 'Bengal Tiger',    emoji: '🐅', tier: 'uncommon', habitat: 'ground' },
+        { id: 'gorilla',    name: 'Silverback',      emoji: '🦍', tier: 'uncommon', habitat: 'ground' },
+        { id: 'flamingo',   name: 'Lagoon Flamingo', emoji: '🦩', tier: 'uncommon', habitat: 'pond'   },
+        { id: 'crocodile',  name: 'Caiman',          emoji: '🐊', tier: 'uncommon', habitat: 'pond'   },
+        { id: 'orangutan',  name: 'Orangutan',       emoji: '🦧', tier: 'uncommon', habitat: 'ground' }
+      ],
+      legendary: [
+        { id: 'leopard',    name: 'Golden Jaguar',   emoji: '🐆', tier: 'legendary', habitat: 'ground' },
+        { id: 'peacock',    name: 'Emerald Peacock', emoji: '🦚', tier: 'legendary', habitat: 'ground' },
+        { id: 'dragon',     name: 'Jungle Guardian', emoji: '🐉', tier: 'legendary', habitat: 'canopy' }
+      ]
+    };
+
+    /**************************************************************
+     * 2. STATE VARIABLES
+     **************************************************************/
+    let activeAnimals = []; // { uid, species, x, y, spooked, el, facingLeft }
+    let nextUid = 1;
+
+    // Audio & Testing State
+    let audioCtx = null;
+    let analyser = null;
+    let micStream = null;
+    let micActive = false;
+    let simulatedLoud = false;
+    let currentAudioLevel = 0; // 0 to 100
+
+    // Settings
+    let noiseThreshold = 45;     // % (0-100)
+    let loudDurationLimit = 3.0; // seconds of sustained loudness to trigger spook / flee
+    let calmDurationLimit = 5.0; // seconds of quiet required for spooked animals to calm down
+
+    // Timers (in seconds)
+    let sustainedLoudTime = 0;
+    let sustainedCalmTime = 0;
+    let spawnTimer = 60.0; // 60 seconds = 1 minute
+
+    /**************************************************************
+     * 3. DOM ELEMENTS
+     **************************************************************/
+    const animalStage = document.getElementById('animal-stage');
+    const statusBadge = document.getElementById('status-badge');
+    const dbReadout = document.getElementById('db-readout');
+    const thresholdReadout = document.getElementById('threshold-readout');
+    const meterFill = document.getElementById('meter-fill');
+    const thresholdMarker = document.getElementById('threshold-marker');
+
+    const thresholdSlider = document.getElementById('threshold-slider');
+    const thresholdVal = document.getElementById('threshold-val');
+    const durationSlider = document.getElementById('duration-slider');
+    const durationVal = document.getElementById('duration-val');
+    const calmSlider = document.getElementById('calm-slider');
+    const calmVal = document.getElementById('calm-val');
+
+    const micBtn = document.getElementById('mic-btn');
+    const testNoiseBtn = document.getElementById('test-noise-btn');
+    const spawnNowBtn = document.getElementById('spawn-now-btn');
+
+    const totalAnimalsCountEl = document.getElementById('total-animals-count');
+    const spookedAnimalsCountEl = document.getElementById('spooked-animals-count');
+    const spawnCountdownEl = document.getElementById('spawn-countdown');
+    const legendaryCountEl = document.getElementById('legendary-count');
+
+    const loudTimerLabel = document.getElementById('loud-timer-label');
+    const loudTimerText = document.getElementById('loud-timer-text');
+    const loudProgressBar = document.getElementById('loud-progress-bar');
+    const calmTimerRow = document.getElementById('calm-timer-row');
+    const calmTimerText = document.getElementById('calm-timer-text');
+    const calmProgressBar = document.getElementById('calm-progress-bar');
+
+    const toastContainer = document.getElementById('toast-container');
+    const toggleGuideBtn = document.getElementById('toggle-guide-btn');
+    const closeGuideBtn = document.getElementById('close-guide-btn');
+    const bestiaryModal = document.getElementById('bestiary-modal');
+
+    /**************************************************************
+     * 4. SPAWNING & TIER PROBABILITY (60% Common, 30% Uncommon, 10% Legendary)
+     **************************************************************/
+    function pickRandomSpecies() {
+      // Check which legendary animals are NOT currently in the jungle
+      const activeLegendaryIds = new Set(
+        activeAnimals
+          .filter(a => a.species.tier === 'legendary')
+          .map(a => a.species.id)
+      );
+      const availableLegendaries = ANIMAL_CATALOG.legendary.filter(
+        s => !activeLegendaryIds.has(s.id)
+      );
+
+      const roll = Math.random() * 100;
+      let chosenTier = 'common';
+
+      if (roll < 60) {
+        chosenTier = 'common';
+      } else if (roll < 90) {
+        chosenTier = 'uncommon';
+      } else {
+        // 10% Legendary roll — only if there is an unspawned legendary left
+        if (availableLegendaries.length > 0) {
+          chosenTier = 'legendary';
+        } else {
+          // Fallback proportionally between common (2/3) and uncommon (1/3)
+          chosenTier = Math.random() < (60 / 90) ? 'common' : 'uncommon';
+        }
+      }
+
+      if (chosenTier === 'legendary') {
+        return availableLegendaries[Math.floor(Math.random() * availableLegendaries.length)];
+      } else if (chosenTier === 'uncommon') {
+        const pool = ANIMAL_CATALOG.uncommon;
+        return pool[Math.floor(Math.random() * pool.length)];
+      } else {
+        const pool = ANIMAL_CATALOG.common;
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+    }
+
+    function getRandomPositionForHabitat(habitat) {
+      // Returns percentage coordinates { x, y }
+      const x = 10 + Math.random() * 80;
+      let y;
+      if (habitat === 'canopy') {
+        y = 18 + Math.random() * 28; // Upper trees
+      } else if (habitat === 'pond') {
+        y = 68 + Math.random() * 16; // Near water
+      } else {
+        y = 54 + Math.random() * 32; // Jungle floor
+      }
+      return { x, y };
+    }
+
+    function spawnAnimal(silent = false) {
+      const species = pickRandomSpecies();
+      const pos = getRandomPositionForHabitat(species.habitat);
+      const uid = nextUid++;
+
+      const el = document.createElement('div');
+      el.className = `animal-entity tier-${species.tier} spawning`;
+      el.style.left = `${pos.x}%`;
+      el.style.top = `${pos.y}%`;
+
+      el.innerHTML = `
+        <div class="spook-indicator">!</div>
+        <div class="animal-sprite-wrap">
+          <span class="animal-sprite">${species.emoji}</span>
+        </div>
+        <div class="animal-tag">
+          <span class="tier-dot"></span>
+          <span>${species.name}</span>
+        </div>
+      `;
+
+      setTimeout(() => el.classList.remove('spawning'), 650);
+      animalStage.appendChild(el);
+
+      const animalObj = {
+        uid,
+        species,
+        x: pos.x,
+        y: pos.y,
+        spooked: false,
+        facingLeft: Math.random() < 0.5,
+        el
+      };
+
+      if (animalObj.facingLeft) {
+        el.classList.add('facing-left');
+      }
+
+      activeAnimals.push(animalObj);
+      updateHUD();
+      renderBestiaryCounts();
+
+      if (!silent) {
+        if (species.tier === 'legendary') {
+          showToast(`✨ LEGENDARY SPAWN! A ${species.name} (${species.emoji}) appeared!`, 'legendary');
+        } else {
+          const tierLabel = species.tier.charAt(0).toUpperCase() + species.tier.slice(1);
+          showToast(`${species.emoji} A ${species.name} (${tierLabel}) entered the jungle!`);
+        }
+      }
+    }
+
+    /**************************************************************
+     * 5. SPOOK & FLEE MECHANICS
+     **************************************************************/
+    function hasSpookedAnimals() {
+      return activeAnimals.some(a => a.spooked);
+    }
+
+    function spookSomeAnimals() {
+      if (activeAnimals.length === 0) return;
+      // Rule: More animals cannot be spooked unless the spooked ones run away or stop being spooked
+      if (hasSpookedAnimals()) return;
+
+      // Choose a random subset of animals to spook (around 40% to 75% of the animals present, at least 1)
+      const shuffled = [...activeAnimals].sort(() => Math.random() - 0.5);
+      const minSpook = 1;
+      const maxSpook = Math.max(1, Math.ceil(activeAnimals.length * 0.75));
+      const countToSpook = Math.floor(minSpook + Math.random() * (maxSpook - minSpook + 1));
+
+      const chosen = shuffled.slice(0, countToSpook);
+      chosen.forEach(a => {
+        a.spooked = true;
+        a.el.classList.add('spooked');
+      });
+
+      sustainedCalmTime = 0;
+      updateHUD();
+      showToast(`⚠️ Too loud! ${chosen.length} animal${chosen.length > 1 ? 's are' : ' is'} spooked (!)`, 'warn');
+    }
+
+    function calmSpookedAnimals() {
+      let calmedCount = 0;
+      activeAnimals.forEach(a => {
+        if (a.spooked) {
+          a.spooked = false;
+          a.el.classList.remove('spooked');
+          calmedCount++;
+        }
+      });
+
+      if (calmedCount > 0) {
+        updateHUD();
+        showToast(`🌿 Quiet restored! The spooked animals calmed down.`);
+      }
+    }
+
+    function makeRandomAnimalsLeave() {
+      if (activeAnimals.length === 0) return;
+
+      // Rule: Every time it gets too loud for long after the animals get spooked,
+      // a random amount of animals leave (1 to 5), and at most 5 can leave at once.
+      // Which animals leave are chosen randomly from the animals in the jungle.
+      const maxLeaving = Math.min(5, activeAnimals.length);
+      const leaveCount = Math.floor(1 + Math.random() * maxLeaving); // 1 .. maxLeaving (capped at 5)
+
+      const shuffled = [...activeAnimals].sort(() => Math.random() - 0.5);
+      const leavingAnimals = shuffled.slice(0, leaveCount);
+      const leavingIds = new Set(leavingAnimals.map(a => a.uid));
+
+      // Remove from activeAnimals array
+      activeAnimals = activeAnimals.filter(a => !leavingIds.has(a.uid));
+
+      // Animate them running off-screen to the left or right
+      leavingAnimals.forEach(a => {
+        const runRight = a.x >= 50;
+        a.el.classList.toggle('facing-left', !runRight);
+        a.el.classList.add('fleeing');
+        a.el.style.left = runRight ? '112%' : '-12%';
+        setTimeout(() => {
+          if (a.el && a.el.parentNode) {
+            a.el.parentNode.removeChild(a.el);
+          }
+        }, 1150);
+      });
+
+      const names = leavingAnimals.map(a => a.species.emoji).join(' ');
+      showToast(`💨 Too loud! ${leaveCount} animal${leaveCount > 1 ? 's' : ''} ran away! (${names})`, 'danger');
+
+      updateHUD();
+      renderBestiaryCounts();
+    }
+
+    /**************************************************************
+     * 6. IDLE ROAMING ANIMATION
+     **************************************************************/
+    setInterval(() => {
+      activeAnimals.forEach(a => {
+        // Spooked animals freeze & shake in place; calm animals gently wander
+        if (a.spooked) return;
+        if (Math.random() < 0.45) {
+          const deltaX = (Math.random() - 0.5) * 10;
+          const deltaY = (Math.random() - 0.5) * 5;
+          const newX = Math.max(8, Math.min(92, a.x + deltaX));
+          let minY = 52, maxY = 85;
+          if (a.species.habitat === 'canopy') { minY = 16; maxY = 46; }
+          if (a.species.habitat === 'pond')   { minY = 66; maxY = 84; }
+          const newY = Math.max(minY, Math.min(maxY, a.y + deltaY));
+
+          a.facingLeft = newX < a.x;
+          a.el.classList.toggle('facing-left', a.facingLeft);
+          a.x = newX;
+          a.y = newY;
+          a.el.style.left = `${a.x}%`;
+          a.el.style.top = `${a.y}%`;
+        }
+      });
+    }, 2800);
+
+    /**************************************************************
+     * 7. MICROPHONE & AUDIO DETECTION
+     **************************************************************/
+    async function toggleMicrophone() {
+      if (micActive) {
+        stopMicrophone();
+        return;
+      }
+
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(micStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        source.connect(analyser);
+
+        micActive = true;
+        micBtn.textContent = '🛑 Stop Microphone';
+        micBtn.classList.add('active-mic');
+        showToast('🎙️ Microphone connected! Keep the classroom quiet to protect the animals.');
+      } catch (err) {
+        console.error('Microphone error:', err);
+        showToast('❌ Could not access microphone. Allow mic permissions or use "Hold to Test Noise".', 'danger');
+      }
+    }
+
+    function stopMicrophone() {
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      if (audioCtx) {
+        audioCtx.close();
+        audioCtx = null;
+      }
+      analyser = null;
+      micActive = false;
+      currentAudioLevel = 0;
+      micBtn.textContent = '🎙️ Start Microphone';
+      micBtn.classList.remove('active-mic');
+    }
+
+    function sampleAudioLevel() {
+      if (simulatedLoud) {
+        // Simulate loud noise above current threshold
+        const target = Math.min(100, noiseThreshold + 28 + Math.random() * 10);
+        currentAudioLevel = currentAudioLevel * 0.7 + target * 0.3;
+        return;
+      }
+
+      if (!micActive || !analyser) {
+        currentAudioLevel = currentAudioLevel * 0.85;
+        if (currentAudioLevel < 0.5) currentAudioLevel = 0;
+        return;
+      }
+
+      const data = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(data);
+
+      // Compute RMS amplitude
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const normalized = (data[i] - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+
+      // Map RMS (typically 0.0 to ~0.4 in normal rooms) onto a 0-100 scale
+      const scaled = Math.min(100, Math.pow(rms * 3.2, 0.75) * 100);
+      currentAudioLevel = currentAudioLevel * 0.65 + scaled * 0.35;
+    }
+
+    /**************************************************************
+     * 8. MAIN GAME LOOP (Timers, Spawning, Spook/Flee Logic)
+     **************************************************************/
+    let lastFrameTime = performance.now();
+
+    function mainLoop(now) {
+      const dt = Math.min(0.1, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+
+      // 1. Sample audio level
+      sampleAudioLevel();
+      const roundedLevel = Math.round(currentAudioLevel);
+      dbReadout.textContent = `${roundedLevel}%`;
+      meterFill.style.width = `${ Math.min(100, currentAudioLevel) }%`;
+
+      const isLoud = currentAudioLevel >= noiseThreshold;
+      const anySpooked = hasSpookedAnimals();
+
+      // 2. Minute Spawn Timer (every 60s a new animal spawns)
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnTimer = 60.0;
+        spawnAnimal(false);
+      }
+
+      // 3. Noise / Spook / Leave State Machine
+      if (activeAnimals.length === 0) {
+        sustainedLoudTime = 0;
+        sustainedCalmTime = 0;
+      } else if (isLoud) {
+        // Sound is above threshold
+        sustainedLoudTime += dt;
+        sustainedCalmTime = Math.max(0, sustainedCalmTime - dt * 0.5);
+
+        if (sustainedLoudTime >= loudDurationLimit) {
+          sustainedLoudTime = 0;
+          if (!anySpooked) {
+            // Step 1: Being loud first puts an orange exclamation mark above some of the animals (spooked)
+            spookSomeAnimals();
+          } else {
+            // Step 2: Every time it gets too loud for long AFTER animals get spooked, random animals (up to 5) leave
+            makeRandomAnimalsLeave();
+          }
+        }
+      } else {
+        // Sound is back to normal (below threshold)
+        sustainedLoudTime = Math.max(0, sustainedLoudTime - dt * 1.5);
+
+        if (anySpooked) {
+          sustainedCalmTime += dt;
+          if (sustainedCalmTime >= calmDurationLimit) {
+            sustainedCalmTime = 0;
+            calmSpookedAnimals();
+          }
+        } else {
+          sustainedCalmTime = 0;
+        }
+      }
+
+      // 4. Update Timers & Status UI
+      updateTimerBars(isLoud, hasSpookedAnimals());
+      requestAnimationFrame(mainLoop);
+    }
+
+    function updateTimerBars(isLoud, anySpooked) {
+      // Spawn countdown
+      const secsLeft = Math.ceil(spawnTimer);
+      const mins = Math.floor(secsLeft / 60);
+      const secs = secsLeft % 60;
+      spawnCountdownEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+      // Loudness progress bar
+      if (anySpooked) {
+        loudTimerLabel.textContent = 'Danger Timer (Animals Leave!)';
+        loudTimerLabel.style.color = '#f87171';
+      } else {
+        loudTimerLabel.textContent = 'Loudness Timer (Spooks Animals)';
+        loudTimerLabel.style.color = '#fdba74';
+      }
+
+      loudTimerText.textContent = `${sustainedLoudTime.toFixed(1)}s / ${loudDurationLimit.toFixed(1)}s`;
+      const loudPct = Math.min(100, (sustainedLoudTime / loudDurationLimit) * 100);
+      loudProgressBar.style.width = `${loudPct}%`;
+
+      // Calm recovery progress bar
+      calmTimerRow.style.opacity = anySpooked ? '1' : '0.4';
+      calmTimerText.textContent = `${sustainedCalmTime.toFixed(1)}s / ${calmDurationLimit.toFixed(1)}s`;
+      const calmPct = anySpooked ? Math.min(100, (sustainedCalmTime / calmDurationLimit) * 100) : 0;
+      calmProgressBar.style.width = `${calmPct}%`;
+
+      // Top Status Badge
+      if (anySpooked && isLoud) {
+        statusBadge.textContent = '🚨 Too Loud! Animals Fleeing Soon!';
+        statusBadge.className = 'status-badge fleeing';
+      } else if (anySpooked) {
+        statusBadge.textContent = '⚠️ Animals Spooked (!) — Keep Quiet!';
+        statusBadge.className = 'status-badge spooked';
+      } else if (isLoud) {
+        statusBadge.textContent = '🔊 Getting Loud...';
+        statusBadge.className = 'status-badge spooked';
+      } else {
+        statusBadge.textContent = '🌿 Peaceful Jungle';
+        statusBadge.className = 'status-badge';
+      }
+    }
+
+    function updateHUD() {
+      const total = activeAnimals.length;
+      const spooked = activeAnimals.filter(a => a.spooked).length;
+      const legendaries = activeAnimals.filter(a => a.species.tier === 'legendary').length;
+
+      totalAnimalsCountEl.textContent = total;
+      spookedAnimalsCountEl.textContent = spooked;
+      legendaryCountEl.textContent = `${legendaries} / 3`;
+    }
+
+    /**************************************************************
+     * 9. BESTIARY / TIER GUIDE & TOASTS
+     **************************************************************/
+    function renderBestiaryCounts() {
+      const counts = {};
+      activeAnimals.forEach(a => {
+        counts[a.species.id] = (counts[a.species.id] || 0) + 1;
+      });
+
+      ['common', 'uncommon', 'legendary'].forEach(tier => {
+        const container = document.getElementById(`grid-${tier}`);
+        container.innerHTML = ANIMAL_CATALOG[tier].map(s => {
+          const count = counts[s.id] || 0;
+          return `
+            <div class="animal-card">
+              <span class="emoji">${s.emoji}</span>
+              <span>${s.name}</span>
+              <span class="count-pill">${count}</span>
+            </div>
+          `;
+        }).join('');
+      });
+    }
+
+    function showToast(msg, type = 'normal') {
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.textContent = msg;
+      toastContainer.appendChild(toast);
+
+      while (toastContainer.children.length > 4) {
+        toastContainer.removeChild(toastContainer.firstChild);
+      }
+
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 4500);
+    }
+
+    /**************************************************************
+     * 10. EVENT LISTENERS & INITIALIZATION
+     **************************************************************/
+    thresholdSlider.addEventListener('input', e => {
+      noiseThreshold = Number(e.target.value);
+      thresholdVal.textContent = `${noiseThreshold}%`;
+      thresholdReadout.textContent = `${noiseThreshold}%`;
+      thresholdMarker.style.left = `${noiseThreshold}%`;
+    });
+
+    durationSlider.addEventListener('input', e => {
+      loudDurationLimit = Number(e.target.value);
+      durationVal.textContent = `${loudDurationLimit.toFixed(1)}s`;
+    });
+
+    calmSlider.addEventListener('input', e => {
+      calmDurationLimit = Number(e.target.value);
+      calmVal.textContent = `${calmDurationLimit.toFixed(1)}s`;
+    });
+
+    micBtn.addEventListener('click', toggleMicrophone);
+
+    // Hold to simulate noise for easy testing without shouting
+    const startSimNoise = () => { simulatedLoud = true; };
+    const stopSimNoise = () => { simulatedLoud = false; };
+    testNoiseBtn.addEventListener('mousedown', startSimNoise);
+    testNoiseBtn.addEventListener('touchstart', e => { e.preventDefault(); startSimNoise(); });
+    window.addEventListener('mouseup', stopSimNoise);
+    window.addEventListener('touchend', stopSimNoise);
+
+    spawnNowBtn.addEventListener('click', () => {
+      spawnAnimal(false);
+    });
+
+    toggleGuideBtn.addEventListener('click', () => {
+      bestiaryModal.classList.toggle('open');
+    });
+
+    closeGuideBtn.addEventListener('click', () => {
+      bestiaryModal.classList.remove('open');
+    });
+
+    // Spawn 5 starter animals when the page opens so the jungle feels alive right away
+    for (let i = 0; i < 5; i++) {
+      spawnAnimal(true);
+    }
+    showToast('🌴 Welcome to Quiet Jungle! Click "Start Microphone" to monitor classroom noise.');
+    renderBestiaryCounts();
+    requestAnimationFrame(mainLoop);
+  </script>
+</body>
+</html>

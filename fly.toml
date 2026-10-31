@@ -1,0 +1,12 @@
+app = "discord-game-update-bot"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  UPDATE_CHECK_INTERVAL_MINUTES = "10"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

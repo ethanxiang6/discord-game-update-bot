@@ -1,0 +1,28 @@
+{
+  "name": "discord-game-update-bot",
+  "version": "1.0.0",
+  "description": "Multi-platform Discord bot that lists games across all launchers and consoles and tracks game updates & patch notes in designated channels.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --watch src/index.js",
+    "deploy-commands": "node src/deploy-commands.js",
+    "test": "node src/test-smoke.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "game-updates",
+    "patch-notes",
+    "steam",
+    "playstation",
+    "xbox",
+    "nintendo",
+    "epic-games"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7",
+    "rss-parser": "^3.13.0"
+  }
+}
