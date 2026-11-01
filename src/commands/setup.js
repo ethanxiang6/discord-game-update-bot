@@ -53,14 +53,14 @@ module.exports = {
     .addSubcommand((sub) => {
       sub
         .setName('pingroles')
-        .setDescription('Set the roles pinged (along with the server owner) when a suggestion ticket has no detectable game');
+        .setDescription('Set the roles pinged when a Game Suggestions ticket has no detectable game');
       for (let i = 1; i <= 5; i++) {
         sub.addRoleOption((opt) =>
           opt.setName(`role${i}`).setDescription(`Moderator role #${i} to ping`).setRequired(false)
         );
       }
       sub.addBooleanOption((opt) =>
-        opt.setName('clear').setDescription('Remove all ping roles (only the owner will be pinged)').setRequired(false)
+        opt.setName('clear').setDescription('Remove all ping roles').setRequired(false)
       );
       return sub;
     })
@@ -220,7 +220,7 @@ module.exports = {
           content: current.length
             ? `Current ping roles: ${current.map((id) => `<@&${id}>`).join(' ')}
 Pick \`role1\`–\`role5\` to replace them, or set \`clear\` to remove them.`
-            : 'No ping roles set (only the server owner is pinged). Pick `role1`–`role5` to set them.',
+            : 'No ping roles set. Pick `role1`–`role5` to set them.',
           flags: MessageFlags.Ephemeral,
           allowedMentions: { parse: [] }
         });
@@ -229,8 +229,8 @@ Pick \`role1\`–\`role5\` to replace them, or set \`clear\` to remove them.`
       const updated = setGuildSettings(guildId, { pingRoleIds: clear ? [] : roleIds });
       return interaction.reply({
         content: updated.ping_role_ids.length
-          ? `✅ Ping roles set: ${updated.ping_role_ids.map((id) => `<@&${id}>`).join(' ')} (plus the server owner). They're pinged when a Suggestions ticket has no detectable game.`
-          : '✅ Ping roles cleared. Only the server owner will be pinged.',
+          ? `✅ Ping roles set: ${updated.ping_role_ids.map((id) => `<@&${id}>`).join(' ')}. They're pinged when a Game Suggestions ticket has no detectable game.`
+          : '✅ Ping roles cleared. No one will be pinged.',
         allowedMentions: { parse: [] }
       });
     }
@@ -267,7 +267,7 @@ Pick \`role1\`–\`role5\` to replace them, or set \`clear\` to remove them.`
             name: '🔔 Ticket Ping Roles',
             value: settings.ping_role_ids.length
               ? settings.ping_role_ids.map((id) => `<@&${id}>`).join(' ')
-              : 'None (owner only) — run `/setup pingroles`',
+              : 'None — run `/setup pingroles`',
             inline: true
           },
           {

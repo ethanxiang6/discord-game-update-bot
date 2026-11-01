@@ -22,7 +22,7 @@ const { formatLauncherBadges, formatConsoleBadges } = require('../data/platforms
 
 // Known Tickety Bot ID + case-insensitive name matcher
 const TICKETY_BOT_ID = '718493970652594217';
-const SUGGESTION_KEYWORD_REGEX = /\bsuggestions?\b/i;
+const SUGGESTION_KEYWORD_REGEX = /\bgame[\s_-]*suggestions?\b/i;
 const MAX_CREATOR_MESSAGES_TO_SCAN = 10;
 const TICKET_AUTO_CLOSE_DELAY_SECONDS = 24 * 60 * 60;
 
@@ -191,9 +191,7 @@ async function inspectAndRegisterTicketChannel(channel, incomingMessage = null) 
   const chanName = (channel.name || '').toLowerCase();
   const chanTopic = (channel.topic || '').toLowerCase();
   let hasSuggestionMarker =
-    SUGGESTION_KEYWORD_REGEX.test(chanName) ||
-    chanName.startsWith('suggest') ||
-    SUGGESTION_KEYWORD_REGEX.test(chanTopic);
+    SUGGESTION_KEYWORD_REGEX.test(chanName) || SUGGESTION_KEYWORD_REGEX.test(chanTopic);
 
   const botMessages = [];
 
@@ -377,12 +375,11 @@ async function handleTicketMessageCreate(message) {
       // Detect if the message contains a game name (tolerant of typos, missing colons, lowercase)
       const detectedGame = await detectGameFromMessage(content);
       if (!detectedGame) {
-        // Ping the configured moderator roles + server owner once per ticket
+        // Ping the configured moderator roles once per ticket
         if (!updatedTicket?.no_game_notified && !updatedTicket?.games_added?.length) {
           markTicketNoGameNotified(message.channel.id);
           const roleMentions = (settings.ping_role_ids || []).map((id) => `<@&${id}>`);
-          const ownerMention = message.guild?.ownerId ? `<@${message.guild.ownerId}>` : null;
-          const pings = [...roleMentions, ownerMention].filter(Boolean).join(' ');
+          const pings = roleMentions.join(' ');
           await message.channel.send({
             content:
               `<@${message.author.id}> ❓ I couldn't detect a game in your message, so nothing was added to Game Updates. ` +
@@ -390,7 +387,7 @@ async function handleTicketMessageCreate(message) {
               (pings ? `
 ${pings} — a suggestion needs manual review.` : ''),
             allowedMentions: {
-              users: [message.author.id, ...(message.guild?.ownerId ? [message.guild.ownerId] : [])],
+              users: [message.author.id],
               roles: settings.ping_role_ids || []
             }
           });
