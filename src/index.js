@@ -39,6 +39,7 @@ const {
 } = require('./utils/formatter');
 const {
   handleTicketMessageCreate,
+  handleTicketMessageUpdate,
   inspectAndRegisterTicketChannel,
   isCandidateTicketChannel,
   closeDueTickets
@@ -151,6 +152,14 @@ client.on(Events.MessageCreate, async (message) => {
     await handleTicketMessageCreate(message);
   } catch (err) {
     console.error('[MessageCreate Error]', err.message);
+  }
+});
+
+client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
+  try {
+    await handleTicketMessageUpdate(oldMessage, newMessage);
+  } catch (err) {
+    console.error('[MessageUpdate Error]', err.message);
   }
 });
 

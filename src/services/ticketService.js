@@ -26,6 +26,11 @@ const SUGGESTION_KEYWORD_REGEX = /\bsuggestions?\b/i;
 const MAX_CREATOR_MESSAGES_TO_SCAN = 10;
 const TICKET_AUTO_CLOSE_DELAY_SECONDS = 24 * 60 * 60;
 
+// Channels younger than this are treated as possible tickets even if their name doesn't say "ticket"
+const RECENT_CHANNEL_WINDOW_MS = 6 * 60 * 60 * 1000;
+const UNKNOWN_CHANNEL_RECHECK_MS = 60 * 1000;
+const lastUnknownChannelCheck = new Map();
+
 // Per-channel lock to avoid race conditions when rapid messages arrive
 const channelProcessingLocks = new Map();
 
@@ -59,6 +64,19 @@ function isCandidateTicketChannel(channel) {
     return true;
   }
   return false;
+}
+
+/**
+ * Tickety lets admins name ticket channels anything, so also consider recently created text channels
+ * (rate-limited per channel) as possible tickets.
+ */
+function isPossibleTicketChannel(channel) {
+  if (isCandidateTicketChannel(channel)) return true;
+  if (!channel?.createdTimestamp || Date.now() - channel.createdTimestamp > RECENT_CHANNEL_WINDOW_MS) return false;
+  const last = lastUnknownChannelCheck.get(channel.id) || 0;
+  if (Date.now() - last < UNKNOWN_CHANNEL_RECHECK_MS) return false;
+  lastUnknownChannelCheck.set(channel.id, Date.now());
+  return true;
 }
 
 /**
@@ -216,6 +234,17 @@ async function inspectAndRegisterTicketChannel(channel, incomingMessage = null) 
   return existing || null;
 }
 
+/**
+ * Tickety edits its opening message after posting it (adds the mentions / form answers),
+ * so re-inspect the channel when a bot message is edited.
+ */
+async function handleTicketMessageUpdate(_oldMessage, newMessage) {
+  let msg = newMessage;
+  if (msg.partial) msg = await msg.fetch().catch(() => null);
+  if (!msg || !msg.guildId || !msg.author?.bot) return;
+  await handleTicketMessageCreate(msg);
+}
+
 function scheduleCloseIfUnset(channelId) {
   const t = getSuggestionTicket(channelId);
   if (t && !t.close_at) {
@@ -260,7 +289,7 @@ async function handleTicketMessageCreate(message) {
 
   // 1. If the message is from Tickety (or another bot in a ticket channel), check if it's the opening "Suggestions" embed
   if (message.author?.bot) {
-    if (isTicketyBot(message.author) || isCandidateTicketChannel(message.channel)) {
+    if (isTicketyBot(message.author) || isPossibleTicketChannel(message.channel)) {
       const ticket = await inspectAndRegisterTicketChannel(message.channel, message);
       if (ticket?.is_suggestion_ticket) {
         console.log(
@@ -268,6 +297,8 @@ async function handleTicketMessageCreate(message) {
             ticket.creator_id || 'pending first message'
           }`
         );
+      } else {
+        console.log(`🎫 [Tickety] Bot message in #${message.channel.name}: no Suggestions marker found (yet)`);
       }
     }
     return;
@@ -276,9 +307,9 @@ async function handleTicketMessageCreate(message) {
   // 2. Human message: check if this channel is a registered Suggestions ticket or a candidate ticket channel
   let ticket = getSuggestionTicket(message.channel.id);
 
-  if (!ticket && isCandidateTicketChannel(message.channel)) {
+  if (!ticket && isPossibleTicketChannel(message.channel)) {
     ticket = await inspectAndRegisterTicketChannel(message.channel, message);
-  } else if (ticket && !ticket.is_suggestion_ticket && isCandidateTicketChannel(message.channel)) {
+  } else if (ticket && !ticket.is_suggestion_ticket && isPossibleTicketChannel(message.channel)) {
     // Re-check in case Tickety posted the form embed slightly after the channel opened
     ticket = await inspectAndRegisterTicketChannel(message.channel, message);
   }
@@ -466,6 +497,7 @@ ${pings} — a suggestion needs manual review.` : ''),
 
 module.exports = {
   handleTicketMessageCreate,
+  handleTicketMessageUpdate,
   inspectAndRegisterTicketChannel,
   isCandidateTicketChannel,
   closeDueTickets
