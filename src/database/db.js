@@ -68,6 +68,17 @@ db.exec(`
     game_json TEXT NOT NULL,
     updated_at INTEGER DEFAULT (unixepoch())
   );
+
+  CREATE TABLE IF NOT EXISTS suggestion_tickets (
+    channel_id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL,
+    creator_id TEXT,
+    is_suggestion_ticket INTEGER DEFAULT 0,
+    messages_processed INTEGER DEFAULT 0,
+    games_added_json TEXT DEFAULT '[]',
+    created_at INTEGER DEFAULT (unixepoch()),
+    updated_at INTEGER DEFAULT (unixepoch())
+  );
 `);
 
 // Safe migrations for existing databases
@@ -78,6 +89,22 @@ try {
 }
 try {
   db.exec(`ALTER TABLE tracked_games ADD COLUMN created_forum_channel_id TEXT;`);
+} catch {
+  // Column already exists
+}
+
+try {
+  db.exec(`ALTER TABLE guild_settings ADD COLUMN ping_role_ids_json TEXT DEFAULT '[]';`);
+} catch {
+  // Column already exists
+}
+try {
+  db.exec(`ALTER TABLE suggestion_tickets ADD COLUMN close_at INTEGER;`);
+} catch {
+  // Column already exists
+}
+try {
+  db.exec(`ALTER TABLE suggestion_tickets ADD COLUMN no_game_notified INTEGER DEFAULT 0;`);
 } catch {
   // Column already exists
 }
@@ -93,35 +120,40 @@ function getGuildSettings(guildId) {
       default_channel_id: null,
       use_forum_threads: true,
       forum_mode: 'post_per_game',
-      patches_only_default: false
+      patches_only_default: false,
+      ping_role_ids: []
     };
   }
   return {
     ...row,
+    ping_role_ids: safeJsonParse(row.ping_role_ids_json, []),
     use_forum_threads: Boolean(row.use_forum_threads),
     forum_mode: row.forum_mode || 'post_per_game',
     patches_only_default: Boolean(row.patches_only_default)
   };
 }
 
-function setGuildSettings(guildId, { defaultChannelId, useForumThreads, forumMode, patchesOnlyDefault }) {
+function setGuildSettings(guildId, { defaultChannelId, useForumThreads, forumMode, patchesOnlyDefault, pingRoleIds }) {
   const current = getGuildSettings(guildId);
   const nextChannel = defaultChannelId !== undefined ? defaultChannelId : current.default_channel_id;
   const nextForum = useForumThreads !== undefined ? (useForumThreads ? 1 : 0) : (current.use_forum_threads ? 1 : 0);
   const nextForumMode = forumMode !== undefined ? forumMode : (current.forum_mode || 'post_per_game');
   const nextPatches = patchesOnlyDefault !== undefined ? (patchesOnlyDefault ? 1 : 0) : (current.patches_only_default ? 1 : 0);
 
+  const nextPingRoles = pingRoleIds !== undefined ? pingRoleIds : current.ping_role_ids;
+
   const stmt = db.prepare(`
-    INSERT INTO guild_settings (guild_id, default_channel_id, use_forum_threads, forum_mode, patches_only_default, updated_at)
-    VALUES (?, ?, ?, ?, ?, unixepoch())
+    INSERT INTO guild_settings (guild_id, default_channel_id, use_forum_threads, forum_mode, patches_only_default, ping_role_ids_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, unixepoch())
     ON CONFLICT(guild_id) DO UPDATE SET
       default_channel_id = excluded.default_channel_id,
       use_forum_threads = excluded.use_forum_threads,
       forum_mode = excluded.forum_mode,
       patches_only_default = excluded.patches_only_default,
+      ping_role_ids_json = excluded.ping_role_ids_json,
       updated_at = unixepoch()
   `);
-  stmt.run(guildId, nextChannel, nextForum, nextForumMode, nextPatches);
+  stmt.run(guildId, nextChannel, nextForum, nextForumMode, nextPatches, JSON.stringify(nextPingRoles));
   checkpointDatabase();
   return getGuildSettings(guildId);
 }
@@ -287,6 +319,118 @@ function getCachedGameMetadata(gameId) {
   return safeJsonParse(row.game_json, null);
 }
 
+function getAllCachedGames() {
+  const stmt = db.prepare('SELECT game_json FROM catalog_cache');
+  const rows = stmt.all();
+  return rows.map((r) => safeJsonParse(r.game_json, null)).filter(Boolean);
+}
+
+// --- Suggestion Tickets (Tickety) Helpers ---
+
+function getSuggestionTicket(channelId) {
+  const stmt = db.prepare('SELECT * FROM suggestion_tickets WHERE channel_id = ?');
+  const row = stmt.get(String(channelId));
+  if (!row) return null;
+  return {
+    ...row,
+    is_suggestion_ticket: Boolean(row.is_suggestion_ticket),
+    messages_processed: Number(row.messages_processed) || 0,
+    no_game_notified: Boolean(row.no_game_notified),
+    games_added: safeJsonParse(row.games_added_json, [])
+  };
+}
+
+function upsertSuggestionTicket(channelId, { guildId, creatorId, isSuggestionTicket, messagesProcessed, gamesAdded } = {}) {
+  const existing = getSuggestionTicket(channelId);
+  const nextGuildId = guildId || existing?.guild_id || '';
+  const nextCreatorId = creatorId !== undefined ? creatorId : (existing?.creator_id || null);
+  const nextIsSuggestion =
+    isSuggestionTicket !== undefined
+      ? (isSuggestionTicket ? 1 : 0)
+      : (existing ? (existing.is_suggestion_ticket ? 1 : 0) : 0);
+  const nextCount =
+    messagesProcessed !== undefined
+      ? Number(messagesProcessed)
+      : (existing?.messages_processed || 0);
+  const nextGames =
+    gamesAdded !== undefined
+      ? gamesAdded
+      : (existing?.games_added || []);
+
+  const stmt = db.prepare(`
+    INSERT INTO suggestion_tickets (
+      channel_id, guild_id, creator_id, is_suggestion_ticket, messages_processed, games_added_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+    ON CONFLICT(channel_id) DO UPDATE SET
+      guild_id = excluded.guild_id,
+      creator_id = COALESCE(excluded.creator_id, suggestion_tickets.creator_id),
+      is_suggestion_ticket = CASE WHEN excluded.is_suggestion_ticket = 1 THEN 1 ELSE suggestion_tickets.is_suggestion_ticket END,
+      messages_processed = excluded.messages_processed,
+      games_added_json = excluded.games_added_json,
+      updated_at = unixepoch()
+  `);
+  stmt.run(
+    String(channelId),
+    String(nextGuildId),
+    nextCreatorId ? String(nextCreatorId) : null,
+    nextIsSuggestion,
+    nextCount,
+    JSON.stringify(nextGames)
+  );
+  checkpointDatabase();
+  return getSuggestionTicket(channelId);
+}
+
+function incrementTicketMessageCount(channelId, creatorId = null) {
+  const existing = getSuggestionTicket(channelId);
+  if (!existing) return null;
+  const nextCount = (existing.messages_processed || 0) + 1;
+  return upsertSuggestionTicket(channelId, {
+    guildId: existing.guild_id,
+    creatorId: existing.creator_id || creatorId,
+    isSuggestionTicket: existing.is_suggestion_ticket,
+    messagesProcessed: nextCount,
+    gamesAdded: existing.games_added
+  });
+}
+
+function recordGameAddedToTicket(channelId, gameId) {
+  const existing = getSuggestionTicket(channelId);
+  if (!existing) return null;
+  const games = Array.from(new Set([...(existing.games_added || []), String(gameId)]));
+  return upsertSuggestionTicket(channelId, {
+    guildId: existing.guild_id,
+    creatorId: existing.creator_id,
+    isSuggestionTicket: existing.is_suggestion_ticket,
+    messagesProcessed: existing.messages_processed,
+    gamesAdded: games
+  });
+}
+
+function markTicketNoGameNotified(channelId) {
+  db.prepare('UPDATE suggestion_tickets SET no_game_notified = 1, updated_at = unixepoch() WHERE channel_id = ?').run(String(channelId));
+  checkpointDatabase();
+}
+
+function scheduleTicketClose(channelId, closeAtUnix) {
+  db.prepare('UPDATE suggestion_tickets SET close_at = ?, updated_at = unixepoch() WHERE channel_id = ?').run(
+    closeAtUnix,
+    String(channelId)
+  );
+  checkpointDatabase();
+}
+
+function getDueTicketCloses(nowUnix) {
+  return db
+    .prepare('SELECT channel_id, guild_id FROM suggestion_tickets WHERE close_at IS NOT NULL AND close_at <= ?')
+    .all(nowUnix);
+}
+
+function removeSuggestionTicket(channelId) {
+  db.prepare('DELETE FROM suggestion_tickets WHERE channel_id = ?').run(String(channelId));
+  checkpointDatabase();
+}
+
 function checkpointDatabase() {
   try {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
@@ -320,5 +464,14 @@ module.exports = {
   markUpdateSeen,
   hasAnySeenUpdates,
   cacheGameMetadata,
-  getCachedGameMetadata
+  getCachedGameMetadata,
+  getAllCachedGames,
+  getSuggestionTicket,
+  upsertSuggestionTicket,
+  incrementTicketMessageCount,
+  recordGameAddedToTicket,
+  markTicketNoGameNotified,
+  scheduleTicketClose,
+  getDueTicketCloses,
+  removeSuggestionTicket
 };

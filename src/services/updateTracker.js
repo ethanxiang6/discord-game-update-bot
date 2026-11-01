@@ -170,7 +170,31 @@ async function seedInitialUpdatesForGame(guildId, trackedGame) {
  */
 async function initializeGameForumOnTrack(client, trackedGame, latestUpdate = null) {
   const settings = getGuildSettings(trackedGame.guild_id);
-  const baseChannelId = trackedGame.target_channel_id || settings.default_channel_id;
+  let baseChannelId = trackedGame.target_channel_id || settings.default_channel_id;
+
+  // Auto-discover the server's #gaming-updates Forum channel if default_channel_id is not set yet
+  if (!baseChannelId && trackedGame.guild_id) {
+    try {
+      const guild = await client.guilds.fetch(trackedGame.guild_id).catch(() => null);
+      if (guild) {
+        const channels = await guild.channels.fetch().catch(() => null);
+        if (channels) {
+          const forumMatch = channels.find(
+            (ch) =>
+              ch &&
+              ch.type === ChannelType.GuildForum &&
+              /gaming-updates|game-updates|updates/i.test(ch.name)
+          );
+          if (forumMatch) {
+            baseChannelId = forumMatch.id;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   if (!baseChannelId) {
     return { destinationMention: null, mode: 'none' };
   }
@@ -335,6 +359,24 @@ async function ensureGameForumPostInForumChannel(forumChannel, trackedGame, init
   let thread = null;
   if (trackedGame.thread_id) {
     thread = await forumChannel.threads.fetch(trackedGame.thread_id).catch(() => null);
+  }
+
+  // Also check if an active thread in this Forum Channel already exists for this game name
+  if (!thread) {
+    const active = await forumChannel.threads.fetchActive().catch(() => null);
+    if (active && active.threads) {
+      const targetLower = trackedGame.game_name.toLowerCase();
+      const found = active.threads.find((t) => {
+        const cleanThreadName = t.name.replace(/^🎮\s*/, '').split('—')[0].trim().toLowerCase();
+        return cleanThreadName === targetLower;
+      });
+      if (found) {
+        thread = found;
+        updateTrackedGameThread(trackedGame.guild_id, trackedGame.game_id, thread.id);
+        trackedGame.thread_id = thread.id;
+        return thread;
+      }
+    }
   }
 
   if (!thread) {

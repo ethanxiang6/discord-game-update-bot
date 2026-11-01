@@ -50,6 +50,20 @@ module.exports = {
             .setRequired(false)
         )
     )
+    .addSubcommand((sub) => {
+      sub
+        .setName('pingroles')
+        .setDescription('Set the roles pinged (along with the server owner) when a suggestion ticket has no detectable game');
+      for (let i = 1; i <= 5; i++) {
+        sub.addRoleOption((opt) =>
+          opt.setName(`role${i}`).setDescription(`Moderator role #${i} to ping`).setRequired(false)
+        );
+      }
+      sub.addBooleanOption((opt) =>
+        opt.setName('clear').setDescription('Remove all ping roles (only the owner will be pinged)').setRequired(false)
+      );
+      return sub;
+    })
     .addSubcommand((sub) =>
       sub
         .setName('status')
@@ -192,6 +206,35 @@ module.exports = {
       return interaction.reply({ embeds: [embed] });
     }
 
+    if (sub === 'pingroles') {
+      const clear = interaction.options.getBoolean('clear');
+      const roleIds = [];
+      for (let i = 1; i <= 5; i++) {
+        const role = interaction.options.getRole(`role${i}`);
+        if (role && !roleIds.includes(role.id)) roleIds.push(role.id);
+      }
+
+      if (!clear && roleIds.length === 0) {
+        const current = getGuildSettings(guildId).ping_role_ids;
+        return interaction.reply({
+          content: current.length
+            ? `Current ping roles: ${current.map((id) => `<@&${id}>`).join(' ')}
+Pick \`role1\`–\`role5\` to replace them, or set \`clear\` to remove them.`
+            : 'No ping roles set (only the server owner is pinged). Pick `role1`–`role5` to set them.',
+          flags: MessageFlags.Ephemeral,
+          allowedMentions: { parse: [] }
+        });
+      }
+
+      const updated = setGuildSettings(guildId, { pingRoleIds: clear ? [] : roleIds });
+      return interaction.reply({
+        content: updated.ping_role_ids.length
+          ? `✅ Ping roles set: ${updated.ping_role_ids.map((id) => `<@&${id}>`).join(' ')} (plus the server owner). They're pinged when a Suggestions ticket has no detectable game.`
+          : '✅ Ping roles cleared. Only the server owner will be pinged.',
+        allowedMentions: { parse: [] }
+      });
+    }
+
     if (sub === 'status') {
       const settings = getGuildSettings(guildId);
       const tracked = getTrackedGamesByGuild(guildId);
@@ -218,6 +261,13 @@ module.exports = {
           {
             name: '🎮 Tracked Games',
             value: `**${tracked.length}** active game(s)`,
+            inline: true
+          },
+          {
+            name: '🔔 Ticket Ping Roles',
+            value: settings.ping_role_ids.length
+              ? settings.ping_role_ids.map((id) => `<@&${id}>`).join(' ')
+              : 'None (owner only) — run `/setup pingroles`',
             inline: true
           },
           {

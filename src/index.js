@@ -37,9 +37,19 @@ const {
   buildGameCatalogEmbed,
   buildUpdateNotificationPayload
 } = require('./utils/formatter');
+const {
+  handleTicketMessageCreate,
+  inspectAndRegisterTicketChannel,
+  isCandidateTicketChannel,
+  closeDueTickets
+} = require('./services/ticketService');
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+let client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 // Prevent unhandled client or promise errors from crashing the bot process
@@ -111,6 +121,12 @@ client.once(Events.ClientReady, async (readyClient) => {
       .catch((err) => console.error('[Scheduled Poll Error]', err));
   }, intervalMinutes * 60 * 1000);
 
+  // Auto-close Suggestions tickets 24h after the bot handled them
+  setInterval(() => {
+    closeDueTickets(client).catch((err) => console.error('[Ticket Auto-Close Error]', err));
+  }, 5 * 60 * 1000);
+  closeDueTickets(client).catch((err) => console.error('[Ticket Auto-Close Error]', err));
+
   // If running inside a 24/7 Cloud Workflow Runner (e.g. GitHub Actions),
   // exit gracefully after CLOUD_MAX_RUNTIME_MINUTES so the runner can persist SQLite and spawn the next cycle.
   const maxRuntimeMinutes = Number(process.env.CLOUD_MAX_RUNTIME_MINUTES) || 0;
@@ -127,6 +143,15 @@ client.once(Events.ClientReady, async (readyClient) => {
 
 client.on(Events.GuildCreate, async (guild) => {
   await syncCommandsToGuild(guild.id);
+});
+
+// Tickety "Suggestions" tickets: scan the creator's first 10 messages for game names and auto-track them
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    await handleTicketMessageCreate(message);
+  } catch (err) {
+    console.error('[MessageCreate Error]', err.message);
+  }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
