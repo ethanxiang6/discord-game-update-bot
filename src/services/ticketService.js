@@ -123,6 +123,16 @@ function extractAllMessageText(msg) {
  * 3. User ID inside the channel topic
  */
 function extractTicketCreatorId(channel, botMessages = [], clientUserId = null) {
+  // 0. Tickety's embed says "Welcome @creator" — the content mention list also includes staff, so prefer this
+  for (const msg of botMessages) {
+    for (const emb of msg.embeds || []) {
+      const welcome = (emb.description || '').match(/welcome[^<]*<@!?(\d{17,20})>/i);
+      if (welcome && welcome[1] !== TICKETY_BOT_ID && welcome[1] !== clientUserId) {
+        return welcome[1];
+      }
+    }
+  }
+
   // 1. Check Tickety's messages for mentioned human users or <@id> in embeds/content
   for (const msg of botMessages) {
     if (msg.mentions?.users?.size > 0) {
