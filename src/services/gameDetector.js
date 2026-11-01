@@ -461,7 +461,7 @@ function extractCandidateQueries(rawMessage) {
     .filter(Boolean);
 
   for (const line of lines) {
-    let phrase = line;
+    let phrase = line.replace(/^(?:(?:bot\s+)?test(?:ing)?\s+)*(?:bot\s+)?test(?:ing)?\s*[:,-]\s*/i, '').trim();
 
     // Strip common conversational prefixes iteratively
     const prefixRegex =
@@ -553,6 +553,50 @@ async function fetchSpellcheckSuggestion(query) {
 }
 
 /**
+ * Titles that are one word repeated ("TEST TEST TEST") are almost always accidental matches on test/filler text.
+ */
+function isJunkTitle(name) {
+  const words = normalizeForFuzzy(name).split(' ').filter(Boolean);
+  return words.length >= 2 && words.every((w) => w === words[0]);
+}
+
+/**
+ * Try adjacent-letter transpositions of the longest word in a query against the live catalog
+ * and return the best sufficiently-similar game.
+ */
+async function searchTransposedVariants(candidate, normCandidate) {
+  const words = normCandidate.split(' ').filter(Boolean);
+  if (words.length === 0 || words.length > 4) return null;
+  const longest = [...words].sort((a, b) => b.length - a.length)[0];
+  if (longest.length < 5 || longest.length > 18) return null;
+
+  const variants = new Set();
+  for (let i = 0; i < longest.length - 1; i++) {
+    if (longest[i] === longest[i + 1]) continue;
+    const swapped = longest.slice(0, i) + longest[i + 1] + longest[i] + longest.slice(i + 2);
+    variants.add(words.map((w) => (w === longest ? swapped : w)).join(' '));
+  }
+
+  const results = await Promise.all(
+    [...variants].map((v) => searchGames(v, { limit: 4, timeoutMs: 3500 }).catch(() => []))
+  );
+
+  let best = null;
+  let bestScore = 0;
+  for (const list of results) {
+    for (const item of list) {
+      if (isJunkTitle(item.name)) continue;
+      const sim = computeGameSimilarity(normCandidate, item.name);
+      if (sim > bestScore) {
+        bestScore = sim;
+        best = item;
+      }
+    }
+  }
+  return best && bestScore >= 0.8 ? best : null;
+}
+
+/**
  * Detect a game from a user's message text (tolerant of typos, missing colons/hyphens, and lowercase).
  * Returns the resolved game object if a valid game is detected, or null if the message does not contain a game.
  */
@@ -568,7 +612,7 @@ async function detectGameFromMessage(rawMessage) {
     if (GAME_ALIASES[normCandidate]) {
       const canonical = GAME_ALIASES[normCandidate];
       const resolved = await resolveGame(canonical);
-      if (resolved) return resolved;
+      if (resolved && !isJunkTitle(resolved.name)) return resolved;
     }
 
     // 2. Fuzzy match against Alias Dictionary & Known Popular Titles (catches typos like "balck myth wukong", "elden rign", "valorent", "fortinte", "terreria")
@@ -612,12 +656,12 @@ async function detectGameFromMessage(rawMessage) {
 
     if (bestLocalScore >= 0.78 && bestLocalScore >= bestKnownScore) {
       const fullGame = await resolveGame(bestLocalGame.id || bestLocalGame.name);
-      if (fullGame) return fullGame;
+      if (fullGame && !isJunkTitle(fullGame.name)) return fullGame;
     }
 
     if (bestKnownScore >= 0.76 && bestKnownTitle) {
       const resolved = await resolveGame(bestKnownTitle);
-      if (resolved) return resolved;
+      if (resolved && !isJunkTitle(resolved.name)) return resolved;
     }
 
     // 3. Live Multi-Source Catalog Search (Steam Store API + RAWG + IGDB + Wikidata)
@@ -633,7 +677,7 @@ async function detectGameFromMessage(rawMessage) {
       }
     }
 
-    if (bestLiveGame && bestLiveScore >= 0.72) {
+    if (bestLiveGame && bestLiveScore >= 0.72 && !isJunkTitle(bestLiveGame.name)) {
       cacheGameMetadata(bestLiveGame);
       return bestLiveGame;
     }
@@ -650,12 +694,19 @@ async function detectGameFromMessage(rawMessage) {
             computeGameSimilarity(corrected, topCorrected.name),
             computeGameSimilarity(normCandidate, topCorrected.name)
           );
-          if (verifySim >= 0.65) {
+          if (verifySim >= 0.65 && !isJunkTitle(topCorrected.name)) {
             cacheGameMetadata(topCorrected);
             return topCorrected;
           }
         }
       }
+    }
+
+    // 4b. Adjacent-letter swap typos ("cinderai" -> "cinderia"): search each swapped variant of the longest word
+    const typoGame = await searchTransposedVariants(candidate, normCandidate);
+    if (typoGame) {
+      cacheGameMetadata(typoGame);
+      return typoGame;
     }
 
     // 5. Partial-word Steam fallback for multi-word queries where one word has a typo (e.g. "cyberpukn 2077" or "hollow night silksong")
@@ -669,7 +720,7 @@ async function detectGameFromMessage(rawMessage) {
         const tokenResults = await searchGames(tq, { limit: 8, timeoutMs: 3500 });
         for (const item of tokenResults) {
           const sim = computeGameSimilarity(normCandidate, item.name);
-          if (sim >= 0.74) {
+          if (sim >= 0.74 && !isJunkTitle(item.name)) {
             cacheGameMetadata(item);
             return item;
           }
