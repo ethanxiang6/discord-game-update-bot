@@ -18,6 +18,7 @@ const {
   initializeGameForumOnTrack
 } = require('./updateTracker');
 const { detectGameFromMessage, normalizeCoreGameTitle } = require('./gameDetector');
+const { verifyGameSuggestion } = require('./aiVerifier');
 const { formatLauncherBadges, formatConsoleBadges } = require('../data/platformsAndGames');
 
 // Known Tickety Bot ID + case-insensitive name matcher
@@ -373,7 +374,15 @@ async function handleTicketMessageCreate(message) {
       );
 
       // Detect if the message contains a game name (tolerant of typos, missing colons, lowercase)
-      const detectedGame = await detectGameFromMessage(content);
+      let detectedGame = await detectGameFromMessage(content);
+
+      // Have the AI confirm the message really suggests this game (null = AI unavailable, keep the match)
+      if (detectedGame) {
+        const confirmed = await verifyGameSuggestion(content, detectedGame.name);
+        console.log(`🤖 [AI Verifier] "${detectedGame.name}" for "${content}": ${confirmed === null ? 'unavailable' : confirmed}`);
+        if (confirmed === false) detectedGame = null;
+      }
+
       if (!detectedGame) {
         // Ping the configured moderator roles once per ticket
         if (!updatedTicket?.no_game_notified && !updatedTicket?.games_added?.length) {
