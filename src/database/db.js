@@ -69,6 +69,14 @@ db.exec(`
     updated_at INTEGER DEFAULT (unixepoch())
   );
 
+  CREATE TABLE IF NOT EXISTS translation_cache (
+    uid TEXT PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    translated INTEGER DEFAULT 0,
+    created_at INTEGER DEFAULT (unixepoch())
+  );
+
   CREATE TABLE IF NOT EXISTS suggestion_tickets (
     channel_id TEXT PRIMARY KEY,
     guild_id TEXT NOT NULL,
@@ -431,6 +439,20 @@ function removeSuggestionTicket(channelId) {
   checkpointDatabase();
 }
 
+function getCachedTranslation(uid) {
+  const row = db.prepare('SELECT title, content, translated FROM translation_cache WHERE uid = ?').get(String(uid));
+  if (!row) return null;
+  return { title: row.title || '', content: row.content || '', translated: Boolean(row.translated) };
+}
+
+function cacheTranslation(uid, title, content, translated) {
+  db.prepare(`
+    INSERT INTO translation_cache (uid, title, content, translated) VALUES (?, ?, ?, ?)
+    ON CONFLICT(uid) DO UPDATE SET title = excluded.title, content = excluded.content, translated = excluded.translated
+  `).run(String(uid), title, content, translated ? 1 : 0);
+  checkpointDatabase();
+}
+
 function checkpointDatabase() {
   try {
     db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
@@ -473,5 +495,7 @@ module.exports = {
   markTicketNoGameNotified,
   scheduleTicketClose,
   getDueTicketCloses,
-  removeSuggestionTicket
+  removeSuggestionTicket,
+  getCachedTranslation,
+  cacheTranslation
 };

@@ -18,6 +18,7 @@ const {
   buildGameCatalogEmbed,
   classifyUpdate
 } = require('../utils/formatter');
+const { translateUpdatesToEnglish } = require('./updateTranslator');
 const { formatLauncherBadges, formatConsoleBadges } = require('../data/platformsAndGames');
 
 const rssParser = new Parser({
@@ -69,7 +70,8 @@ async function fetchGameUpdates(game, limit = 5) {
   }
 
   unique.sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
-  return unique.slice(0, limit);
+  // Non-English announcements are translated (and cached per update) before anything is classified or shown
+  return translateUpdatesToEnglish(unique.slice(0, limit));
 }
 
 /**
