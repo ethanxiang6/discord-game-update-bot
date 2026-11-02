@@ -714,6 +714,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 async function deleteGameUpdateMessages(client, trackedGame, settings) {
   let deleted = 0;
+  const errors = [];
+  const tryDelete = async (target) => {
+    try {
+      await target.delete(reason);
+      deleted++;
+      return true;
+    } catch (err) {
+      errors.push(err.message);
+      console.error(`[UpdateTracker] Could not delete ${target.id} for ${trackedGame.game_name}:`, err.message);
+      return false;
+    }
+  };
   const botId = client.user.id;
   const reason = `Re-sending all ${trackedGame.game_name} updates in English`;
 
@@ -734,10 +746,10 @@ async function deleteGameUpdateMessages(client, trackedGame, settings) {
       }
       for (const thread of threads) {
         if (thread.ownerId !== botId) continue;
-        await thread.delete(reason).then(() => deleted++).catch(() => null);
+        await tryDelete(thread);
       }
     }
-    return deleted;
+    return { deleted, errors };
   }
 
   const baseChannelId = trackedGame.target_channel_id || settings.default_channel_id;
@@ -754,12 +766,13 @@ async function deleteGameUpdateMessages(client, trackedGame, settings) {
       ) || null;
   }
   if (thread) {
-    if (thread.ownerId === botId && (await thread.delete(reason).then(() => true).catch(() => false))) {
-      deleted++;
+    if (thread.ownerId !== botId) {
+      errors.push("the game's forum post was not created by this bot");
+    } else if (await tryDelete(thread)) {
+      updateTrackedGameThread(trackedGame.guild_id, trackedGame.game_id, null);
+      trackedGame.thread_id = null;
     }
-    updateTrackedGameThread(trackedGame.guild_id, trackedGame.game_id, null);
-    trackedGame.thread_id = null;
-    return deleted;
+    return { deleted, errors };
   }
 
   // Plain text / announcement channel: delete this game's update embeds posted by the bot
@@ -771,13 +784,13 @@ async function deleteGameUpdateMessages(client, trackedGame, settings) {
       if (!batch || batch.size === 0) break;
       for (const msg of batch.values()) {
         if (msg.author?.id === botId && msg.embeds.some((e) => e.author?.name?.startsWith(prefix))) {
-          await msg.delete().then(() => deleted++).catch(() => null);
+          await tryDelete(msg);
         }
       }
       before = batch.last().id;
     }
   }
-  return deleted;
+  return { deleted, errors };
 }
 
 /**
@@ -806,8 +819,17 @@ async function resendAllUpdates(client, guildId, { gameId = null, onProgress = (
         continue;
       }
 
-      const deleted = await deleteGameUpdateMessages(client, trackedGame, settings);
+      const { deleted, errors } = await deleteGameUpdateMessages(client, trackedGame, settings);
       summary.deleted += deleted;
+
+      // If anything couldn't be deleted, stop here so we never post duplicates next to the old (e.g. Russian) posts
+      if (errors.length > 0) {
+        summary.skipped.push(trackedGame.game_name);
+        await onProgress(
+          `❌ ${trackedGame.game_name}: couldn't delete the old posts (${errors[0]}). Give the bot **Manage Threads** and **Manage Messages** in the updates channel, then run this again. Nothing was re-sent.`
+        );
+        continue;
+      }
 
       let resent = 0;
       for (const update of toResend) {

@@ -142,6 +142,14 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 
+// Flush the SQLite write-ahead log when the process is stopped (e.g. a cancelled cloud run)
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    checkpointDatabase();
+    process.exit(0);
+  });
+}
+
 client.on(Events.GuildCreate, async (guild) => {
   await syncCommandsToGuild(guild.id);
 });

@@ -257,10 +257,14 @@ function getAllTrackedGames() {
 function removeTrackedGame(guildId, queryOrId) {
   const byId = db.prepare('DELETE FROM tracked_games WHERE guild_id = ? AND game_id = ?');
   const res1 = byId.run(guildId, String(queryOrId));
-  if (res1.changes > 0) return true;
+  if (res1.changes > 0) {
+    checkpointDatabase();
+    return true;
+  }
 
   const byName = db.prepare('DELETE FROM tracked_games WHERE guild_id = ? AND LOWER(game_name) = LOWER(?)');
   const res2 = byName.run(guildId, String(queryOrId));
+  checkpointDatabase();
   return res2.changes > 0;
 }
 

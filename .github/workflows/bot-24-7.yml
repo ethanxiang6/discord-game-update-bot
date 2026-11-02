@@ -60,6 +60,7 @@ jobs:
             while true; do
               sleep 600
               if [ -f data/bot.sqlite ]; then
+                node src/checkpoint.js || true
                 git add data/bot.sqlite
                 if ! git diff --cached --quiet; then
                   git commit -m "chore(db): sync tracked games & seen updates [skip ci]" || true
@@ -80,6 +81,7 @@ jobs:
         if: always()
         run: |
           if [ -f data/bot.sqlite ]; then
+            node src/checkpoint.js || true
             git add data/bot.sqlite
             if ! git diff --cached --quiet; then
               git commit -m "chore(db): save final SQLite state after cycle [skip ci]" || true
