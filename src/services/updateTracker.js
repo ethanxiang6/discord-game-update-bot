@@ -42,7 +42,7 @@ async function fetchGameUpdates(game, limit = 5) {
   // 1. Try Steam News API if steamAppId is available
   if (steamAppId) {
     try {
-      const steamUpdates = await fetchSteamNewsUpdates(steamAppId, 10);
+      const steamUpdates = await fetchSteamNewsUpdates(steamAppId, Math.max(10, limit));
       updates.push(...steamUpdates);
     } catch (err) {
       console.warn(`[UpdateTracker] Steam News fetch failed for ${gameName} (${steamAppId}):`, err.message);
@@ -53,7 +53,7 @@ async function fetchGameUpdates(game, limit = 5) {
   const feedToFetch = customFeedUrl || (!steamAppId ? buildGoogleNewsUpdateFeedUrl(gameName) : null);
   if (feedToFetch) {
     try {
-      const rssUpdates = await fetchRssFeedUpdates(feedToFetch, gameName, 8);
+      const rssUpdates = await fetchRssFeedUpdates(feedToFetch, gameName, Math.max(8, limit));
       updates.push(...rssUpdates);
     } catch (err) {
       console.warn(`[UpdateTracker] RSS fetch failed for ${gameName} (${feedToFetch}):`, err.message);
@@ -495,6 +495,11 @@ async function checkAndPostGameUpdates(client, trackedGame, { forcePostLatest = 
   const gameId = trackedGame.game_id;
   const settings = getGuildSettings(guildId);
 
+  // Don't post new updates into a game's feed while it is being wiped and re-sent
+  if (resendLocks.has(`${guildId}:${gameId}`)) {
+    return { postedCount: 0, latestUpdate: null };
+  }
+
   const updates = await fetchGameUpdates(trackedGame, 5);
   if (updates.length === 0) {
     recordLastUpdateStats(guildId, gameId, null, null);
@@ -697,7 +702,135 @@ async function pollGuildTrackedGames(client, guildId) {
   return { checked: games.length, posted: postedTotal };
 }
 
+const resendLocks = new Set();
+const MAX_RESEND_UPDATES_PER_GAME = 50;
+const RESEND_POST_DELAY_MS = 1500;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Delete every message/post the bot previously made for one game, depending on how its updates were delivered.
+ * Returns the number of Discord objects (forum posts or messages) deleted.
+ */
+async function deleteGameUpdateMessages(client, trackedGame, settings) {
+  let deleted = 0;
+  const botId = client.user.id;
+  const reason = `Re-sending all ${trackedGame.game_name} updates in English`;
+
+  // Dedicated Forum Channel per game: every bot-created post in it is an update post
+  if (trackedGame.created_forum_channel_id) {
+    const forum = await client.channels.fetch(trackedGame.created_forum_channel_id).catch(() => null);
+    if (forum && forum.type === ChannelType.GuildForum) {
+      const threads = [];
+      const active = await forum.threads.fetchActive().catch(() => null);
+      if (active) threads.push(...active.threads.values());
+      let before;
+      for (let page = 0; page < 10; page++) {
+        const archived = await forum.threads.fetchArchived({ limit: 100, before }).catch(() => null);
+        if (!archived || archived.threads.size === 0) break;
+        threads.push(...archived.threads.values());
+        if (!archived.hasMore) break;
+        before = [...archived.threads.values()].pop().id;
+      }
+      for (const thread of threads) {
+        if (thread.ownerId !== botId) continue;
+        await thread.delete(reason).then(() => deleted++).catch(() => null);
+      }
+    }
+    return deleted;
+  }
+
+  const baseChannelId = trackedGame.target_channel_id || settings.default_channel_id;
+  const baseChannel = baseChannelId ? await client.channels.fetch(baseChannelId).catch(() => null) : null;
+
+  // The game's own Forum Post / auto-thread
+  let thread = trackedGame.thread_id ? await client.channels.fetch(trackedGame.thread_id).catch(() => null) : null;
+  if (!thread && baseChannel?.type === ChannelType.GuildForum) {
+    const active = await baseChannel.threads.fetchActive().catch(() => null);
+    const targetLower = trackedGame.game_name.toLowerCase();
+    thread =
+      active?.threads.find(
+        (t) => t.name.replace(/^🎮\s*/, '').split('—')[0].trim().toLowerCase() === targetLower
+      ) || null;
+  }
+  if (thread) {
+    if (thread.ownerId === botId && (await thread.delete(reason).then(() => true).catch(() => false))) {
+      deleted++;
+    }
+    updateTrackedGameThread(trackedGame.guild_id, trackedGame.game_id, null);
+    trackedGame.thread_id = null;
+    return deleted;
+  }
+
+  // Plain text / announcement channel: delete this game's update embeds posted by the bot
+  if (baseChannel?.messages) {
+    const prefix = `${trackedGame.game_name} • `;
+    let before;
+    for (let page = 0; page < 5; page++) {
+      const batch = await baseChannel.messages.fetch({ limit: 100, before }).catch(() => null);
+      if (!batch || batch.size === 0) break;
+      for (const msg of batch.values()) {
+        if (msg.author?.id === botId && msg.embeds.some((e) => e.author?.name?.startsWith(prefix))) {
+          await msg.delete().then(() => deleted++).catch(() => null);
+        }
+      }
+      before = batch.last().id;
+    }
+  }
+  return deleted;
+}
+
+/**
+ * Delete all of the bot's update posts for the guild's tracked games (or one game) and re-send every
+ * update it had already handled, oldest first, translated to English.
+ * `onProgress(text)` is called as each game finishes.
+ */
+async function resendAllUpdates(client, guildId, { gameId = null, onProgress = () => {} } = {}) {
+  const settings = getGuildSettings(guildId);
+  const games = getTrackedGamesByGuild(guildId).filter((g) => !gameId || g.game_id === String(gameId));
+  const summary = { games: 0, deleted: 0, resent: 0, skipped: [] };
+
+  for (const trackedGame of games) {
+    const lockKey = `${guildId}:${trackedGame.game_id}`;
+    resendLocks.add(lockKey);
+    try {
+      // Fetch + translate first; if nothing can be re-sent we leave the existing posts untouched
+      const fetched = await fetchGameUpdates(trackedGame, MAX_RESEND_UPDATES_PER_GAME);
+      const toResend = fetched
+        .filter((u) => isUpdateSeen(guildId, trackedGame.game_id, u.uid))
+        .sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
+
+      if (toResend.length === 0) {
+        summary.skipped.push(trackedGame.game_name);
+        await onProgress(`⏭️ ${trackedGame.game_name}: no updates available from its feed, left as is.`);
+        continue;
+      }
+
+      const deleted = await deleteGameUpdateMessages(client, trackedGame, settings);
+      summary.deleted += deleted;
+
+      let resent = 0;
+      for (const update of toResend) {
+        if (await deliverUpdateToDiscord(client, trackedGame, settings, update)) resent++;
+        await sleep(RESEND_POST_DELAY_MS);
+      }
+      summary.games++;
+      summary.resent += resent;
+      await onProgress(`✅ ${trackedGame.game_name}: deleted ${deleted}, re-sent ${resent} update(s).`);
+    } catch (err) {
+      console.error(`[UpdateTracker] Resend failed for ${trackedGame.game_name}:`, err.message);
+      summary.skipped.push(trackedGame.game_name);
+      await onProgress(`❌ ${trackedGame.game_name}: ${err.message}`);
+    } finally {
+      resendLocks.delete(lockKey);
+    }
+  }
+
+  return summary;
+}
+
 module.exports = {
+  resendAllUpdates,
   fetchGameUpdates,
   seedInitialUpdatesForGame,
   initializeGameForumOnTrack,

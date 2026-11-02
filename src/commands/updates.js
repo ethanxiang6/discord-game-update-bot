@@ -1,10 +1,11 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { searchGames, resolveGame, CONSOLES, LAUNCHERS } = require('../services/catalogService');
 const { getTrackedGame, getTrackedGamesByGuild, getGuildSettings } = require('../database/db');
 const {
   fetchGameUpdates,
   checkAndPostGameUpdates,
-  pollGuildTrackedGames
+  pollGuildTrackedGames,
+  resendAllUpdates
 } = require('../services/updateTracker');
 const { buildUpdateNotificationPayload } = require('../utils/formatter');
 
@@ -31,6 +32,24 @@ module.exports = {
     )
     .addSubcommand((sub) =>
       sub
+        .setName('resend')
+        .setDescription('Delete all update posts the bot made and re-send every past update in English (Manage Server)')
+        .addBooleanOption((opt) =>
+          opt
+            .setName('confirm')
+            .setDescription('Set to True to confirm: this DELETES the bot\'s existing update posts first')
+            .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt
+            .setName('game')
+            .setDescription('Only redo this tracked game (leave empty for all tracked games)')
+            .setRequired(false)
+            .setAutocomplete(true)
+        )
+    )
+    .addSubcommand((sub) =>
+      sub
         .setName('test')
         .setDescription('Post the latest update for a tracked game into your updates channel right now')
         .addStringOption((opt) =>
@@ -46,7 +65,7 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
     const focused = interaction.options.getFocused() || '';
 
-    if (sub === 'test') {
+    if (sub === 'test' || sub === 'resend') {
       const tracked = getTrackedGamesByGuild(interaction.guildId);
       const filtered = tracked
         .filter((g) => g.game_name.toLowerCase().includes(focused.toLowerCase()))
@@ -88,6 +107,54 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const guildId = interaction.guildId;
+
+    if (sub === 'resend') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        return interaction.reply({
+          content: '❌ You need the **Manage Server** permission to use this.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+      if (!interaction.options.getBoolean('confirm', true)) {
+        return interaction.reply({
+          content: 'Nothing was changed. Run it again with `confirm: True` to delete the bot\'s update posts and re-send them in English.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      const gameId = interaction.options.getString('game');
+      if (gameId && !getTrackedGame(guildId, gameId)) {
+        return interaction.reply({
+          content: '❌ That game isn\'t tracked in this server.',
+          flags: MessageFlags.Ephemeral
+        });
+      }
+
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const lines = [];
+      const summary = await resendAllUpdates(interaction.client, guildId, {
+        gameId,
+        onProgress: async (line) => {
+          lines.push(line);
+          await interaction
+            .editReply({ content: `🔄 Re-sending updates...\n${lines.slice(-15).join('\n')}`.slice(0, 1900) })
+            .catch(() => null);
+        }
+      });
+
+      return interaction
+        .editReply({
+          content: [
+            `✅ Done. Redid **${summary.games}** game(s): deleted **${summary.deleted}** old post(s) and re-sent **${summary.resent}** update(s) in English.`,
+            summary.skipped.length ? `Skipped (nothing available from the feed, or an error): ${summary.skipped.join(', ')}` : '',
+            'Note: only updates still available in each game\'s feed can be re-sent.'
+          ]
+            .filter(Boolean)
+            .join('\n')
+            .slice(0, 1900)
+        })
+        .catch(() => null);
+    }
 
     if (sub === 'latest') {
       await interaction.deferReply();
